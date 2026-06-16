@@ -1,60 +1,71 @@
-FROM golang:1.26.1-bookworm AS builder
+# Stage 1: Build ntgcalls (if needed)
+FROM ubuntu:22.04 AS builder
 
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    build-essential \
+    cmake \
+    pkg-config \
+    libssl-dev \
+    libopus-dev \
+    libvpx-dev \
+    libx264-dev \
+    libavcodec-dev \
+    libavformat-dev \
+    libavutil-dev \
+    libswresample-dev \
+    libsrtp2-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone and build ntgcalls (skip if you have prebuilt)
 WORKDIR /build
+RUN git clone --depth 1 https://github.com/Laky-64/ntgcalls.git \
+    && cd ntgcalls \
+    && mkdir build && cd build \
+    && cmake .. \
+    && make -j$(nproc) \
+    && make install
 
-# hadolint ignore=DL3015
-RUN apt-get update && \
-    apt-get install -y \
-        git \
-        gcc \
-        unzip \
-        curl \
-        zlib1g-dev && \
-    rm -rf /var/lib/apt/lists/*
+# Stage 2: Build the bot
+FROM ubuntu:22.04
 
-COPY go.mod go.sum ./
-RUN go mod tidy
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ffmpeg \
+    libopus0 \
+    libvpx7 \
+    libx264-164 \
+    libavcodec-extra \
+    libavformat58 \
+    libavutil56 \
+    libswresample4 \
+    libsrtp2-1 \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY install.sh ./
-COPY . .
+# Copy compiled ntgcalls library from builder
+COPY --from=builder /usr/local/lib/libntgcalls.so /usr/local/lib/
+COPY --from=builder /usr/local/include/ntgcalls /usr/local/include/ntgcalls
 
-RUN chmod +x install.sh && \
-    ./install.sh -n --quiet --skip-summary && \
-    CGO_ENABLED=1 go build -v -trimpath -ldflags="-w -s" -o app ./cmd/app/
+# Set LD_LIBRARY_PATH
+ENV LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 
-
-FROM debian:bookworm-slim
-
-RUN apt-get update && \
-    apt-get install -y \
-        ffmpeg \
-        curl \
-        unzip \
-        zlib1g && \
-    rm -rf /var/lib/apt/lists/*
-
-COPY --from=builder /etc/ssl/certs /etc/ssl/certs
-
-RUN curl -fL \
-      https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux \
-      -o /usr/local/bin/yt-dlp && \
-    chmod 0755 /usr/local/bin/yt-dlp && \
-    curl -fsSL https://deno.land/install.sh -o /tmp/deno-install.sh && \
-    sh /tmp/deno-install.sh && \
-    rm -f /tmp/deno-install.sh
-
-ENV DENO_INSTALL=/root/.deno
-ENV PATH=$DENO_INSTALL/bin:$PATH
-
-RUN useradd -r -u 10001 appuser && \
-    mkdir -p /app && \
-    chown -R appuser:appuser /app
-
+# Set working directory
 WORKDIR /app
 
-COPY --from=builder /build/app /app/app
-RUN chown appuser:appuser /app/app
+# Copy go mod files and download dependencies
+COPY go.mod go.sum ./
+RUN go mod download
 
-USER appuser
+# Copy source code
+COPY . .
 
-ENTRYPOINT ["/app/app"]
+# Build the app with CGO
+RUN CGO_ENABLED=1 go build -v -trimpath -ldflags="-w -s" -o app ./cmd/app
+
+# Expose port (Render sets PORT env)
+EXPOSE 8080
+
+# Run the bot
+CMD ["./app"]
