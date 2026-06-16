@@ -24,6 +24,7 @@ import (
 	"net/http"
 	_ "net/http/pprof"
 	"os"
+	"strconv"
 
 	"github.com/Laky-64/gologging"
 
@@ -82,15 +83,38 @@ func main() {
 
 	modules.Init(core.Bot, core.Assistants)
 
+	// --- MODIFIED: Start HTTP server with health check for Render ---
 	startHTTPServer()
 
 	core.Bot.Idle()
 }
 
+// startHTTPServer now includes a health check endpoint and uses Render's $PORT
 func startHTTPServer() {
 	go func() {
-		addr := "0.0.0.0:" + config.Port
+		// Determine the port: first try Render's PORT env, then config.Port, then default 8080
+		port := os.Getenv("PORT")
+		if port == "" {
+			port = config.Port
+			if port == "" {
+				port = "8080"
+			}
+		}
+		addr := "0.0.0.0:" + port
 
+		// Add a health check endpoint for Render (and any other monitoring)
+		http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("OK"))
+		})
+
+		// Optional: add a root endpoint to avoid 404 noise
+		http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("ArcMusic Bot is running"))
+		})
+
+		gologging.Info("Starting HTTP server on " + addr)
 		if err := http.ListenAndServe(addr, nil); err != nil {
 			gologging.Error("HTTP server error: " + err.Error())
 		}
