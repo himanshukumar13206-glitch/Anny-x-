@@ -1,0 +1,37 @@
+# render.yaml
+services:
+  - type: web
+    name: arcmusic-bot
+    runtime: image
+    repo: https://github.com/YOUR_USERNAME/ArcMusic
+    plan: free
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: TOKEN
+        sync: false
+      - key: MONGO_DB_URI
+        sync: false
+      - key: STRING_SESSIONS
+        sync: false
+      - key: LOGGER_ID
+        sync: false
+      - key: OWNER_ID
+        sync: false
+      - key: PORT
+        value: 8080
+      - key: BASE_URL
+        fromService:
+          name: arcmusic-bot
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: WEBHOOK_URL
+        fromService:
+          name: arcmusic-bot
+          type: web
+          envVarKey: RENDER_EXTERNAL_URL
+      - key: ARC_API_KEY
+        sync: false
